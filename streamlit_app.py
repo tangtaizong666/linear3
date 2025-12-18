@@ -1295,14 +1295,550 @@ def display_simplex_iteration_history(iteration_payload):
     if tableau_before:
         st.markdown("#### 📊 单纯形表")
 
+        # 获取主元信息
+        pivot_info = entry.get('pivot')
+        pivot_row = pivot_info.get('row') if pivot_info else None
+        pivot_col = pivot_info.get('col') if pivot_info else None
+
         # 创建带有 Cj 和 Cj-Zj 行的完整表格
         tab1, tab2 = st.tabs(["📥 迭代前", "📤 迭代后"])
 
         # 表头
         headers = ['基变量'] + column_labels + ['RHS']
 
+        def build_html_table(table_data, headers, pivot_row_idx=None, pivot_col_idx=None, is_before=True):
+            """构建带有主元高亮的HTML表格 - 美化版（主元行列不同颜色）"""
+
+            # 生成唯一ID避免样式冲突
+            import random
+            table_id = f"simplex_{random.randint(1000, 9999)}"
+
+            html = f"""
+            <style>
+                #{table_id} {{
+                    width: 100%;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                    font-size: 13px;
+                    margin: 15px 0;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                }}
+
+                #{table_id} th {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    font-weight: 600;
+                    padding: 14px 10px;
+                    text-align: center;
+                    font-size: 12px;
+                    letter-spacing: 0.5px;
+                    border: none;
+                    position: relative;
+                }}
+
+                #{table_id} th:first-child {{
+                    border-top-left-radius: 12px;
+                }}
+
+                #{table_id} th:last-child {{
+                    border-top-right-radius: 12px;
+                }}
+
+                #{table_id} td {{
+                    padding: 12px 10px;
+                    text-align: center;
+                    border-bottom: 1px solid #e8e8e8;
+                    border-right: 1px solid #f0f0f0;
+                    transition: all 0.2s ease;
+                    font-size: 12px;
+                }}
+
+                #{table_id} td:first-child {{
+                    font-weight: 600;
+                    background: #f8f9fa;
+                    color: #495057;
+                    border-left: none;
+                }}
+
+                #{table_id} tr:last-child td {{
+                    border-bottom: none;
+                }}
+
+                #{table_id} tr:last-child td:first-child {{
+                    border-bottom-left-radius: 12px;
+                }}
+
+                #{table_id} tr:last-child td:last-child {{
+                    border-bottom-right-radius: 12px;
+                }}
+
+                #{table_id} tbody tr:hover {{
+                    background-color: #f5f7ff;
+                }}
+
+                /* ========== 主元单元格 - 紫色渐变，最醒目 ========== */
+                #{table_id} .pivot-cell {{
+                    background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%) !important;
+                    color: white !important;
+                    font-weight: bold !important;
+                    font-size: 13px !important;
+                    box-shadow: 0 0 0 4px rgba(156, 39, 176, 0.3), inset 0 0 15px rgba(255,255,255,0.2);
+                    border-radius: 8px;
+                    animation: pivot-pulse 1.5s infinite;
+                    position: relative;
+                }}
+
+                @keyframes pivot-pulse {{
+                    0% {{ box-shadow: 0 0 0 4px rgba(156, 39, 176, 0.4); }}
+                    50% {{ box-shadow: 0 0 0 8px rgba(156, 39, 176, 0.2); }}
+                    100% {{ box-shadow: 0 0 0 4px rgba(156, 39, 176, 0.4); }}
+                }}
+
+                /* ========== 主元行 - 橙红色系（暖色） ========== */
+                #{table_id} .pivot-row {{
+                    background: linear-gradient(90deg, #fff3e0 0%, #ffe0b2 50%, #fff3e0 100%) !important;
+                }}
+
+                #{table_id} .pivot-row td {{
+                    border-top: 3px solid #ff9800 !important;
+                    border-bottom: 3px solid #ff9800 !important;
+                }}
+
+                #{table_id} .pivot-row td:first-child {{
+                    background: linear-gradient(90deg, #ffe0b2 0%, #ffcc80 100%) !important;
+                    border-left: 3px solid #ff9800 !important;
+                }}
+
+                #{table_id} .pivot-row td:last-child {{
+                    border-right: 3px solid #ff9800 !important;
+                }}
+
+                /* ========== 主元列 - 蓝绿色系（冷色） ========== */
+                #{table_id} .pivot-col-cell {{
+                    background: linear-gradient(180deg, #e0f7fa 0%, #b2ebf2 100%) !important;
+                    border-left: 3px solid #00bcd4 !important;
+                    border-right: 3px solid #00bcd4 !important;
+                    color: #006064 !important;
+                    font-weight: 600 !important;
+                }}
+
+                /* 入基列表头 - 蓝绿色 */
+                #{table_id} .entering-header {{
+                    background: linear-gradient(135deg, #00acc1 0%, #00838f 100%) !important;
+                    box-shadow: 0 4px 12px rgba(0, 188, 212, 0.4);
+                    position: relative;
+                }}
+
+                #{table_id} .entering-header::after {{
+                    content: '';
+                    position: absolute;
+                    bottom: -10px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    border-left: 10px solid transparent;
+                    border-right: 10px solid transparent;
+                    border-top: 10px solid #00838f;
+                }}
+
+                /* ========== 离基变量标记 - 橙色系 ========== */
+                #{table_id} .leaving-cell {{
+                    background: linear-gradient(90deg, #fff3e0 0%, #ffcc80 100%) !important;
+                    font-weight: bold !important;
+                    color: #e65100 !important;
+                    position: relative;
+                }}
+
+                /* Cj 行 - 绿色系 */
+                #{table_id} .cj-row {{
+                    background: linear-gradient(90deg, #e8f5e9 0%, #c8e6c9 50%, #e8f5e9 100%) !important;
+                }}
+
+                #{table_id} .cj-row td {{
+                    font-weight: 600;
+                    color: #2e7d32;
+                    font-size: 11px;
+                }}
+
+                #{table_id} .cj-row td:first-child {{
+                    background: linear-gradient(90deg, #c8e6c9 0%, #a5d6a7 100%);
+                    color: #1b5e20;
+                }}
+
+                /* Cj-Zj 行 - 黄色系 */
+                #{table_id} .cjzj-row {{
+                    background: linear-gradient(90deg, #fffde7 0%, #fff9c4 50%, #fffde7 100%) !important;
+                }}
+
+                #{table_id} .cjzj-row td {{
+                    font-weight: 600;
+                    color: #f57f17;
+                    font-size: 11px;
+                }}
+
+                #{table_id} .cjzj-row td:first-child {{
+                    background: linear-gradient(90deg, #fff9c4 0%, #fff176 100%);
+                    color: #f57f17;
+                }}
+
+                /* Cj-Zj 行中正值高亮（可入基指示） */
+                #{table_id} .positive-cjzj {{
+                    color: #c62828 !important;
+                    font-weight: bold !important;
+                    background: linear-gradient(180deg, #ffebee 0%, #ffcdd2 100%) !important;
+                    border: 2px dashed #e57373 !important;
+                }}
+
+                /* ========== 标签样式 ========== */
+                #{table_id} .label-tag {{
+                    display: inline-block;
+                    font-size: 9px;
+                    padding: 3px 8px;
+                    border-radius: 12px;
+                    margin-top: 4px;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                }}
+
+                #{table_id} .tag-enter {{
+                    background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%);
+                    color: #006064;
+                    border: 1px solid #4dd0e1;
+                    box-shadow: 0 2px 4px rgba(0,188,212,0.3);
+                }}
+
+                #{table_id} .tag-leave {{
+                    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+                    color: #e65100;
+                    border: 1px solid #ffb74d;
+                    box-shadow: 0 2px 4px rgba(255,152,0,0.3);
+                }}
+
+                #{table_id} .tag-pivot {{
+                    background: rgba(255,255,255,0.25);
+                    color: white;
+                    border: 1px solid rgba(255,255,255,0.6);
+                    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+                }}
+
+                /* ========== 图例说明 ========== */
+                .simplex-legend {{
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 15px;
+                    margin: 10px 0 15px 0;
+                    padding: 12px 15px;
+                    background: #f8f9fa;
+                    border-radius: 8px;
+                    font-size: 12px;
+                }}
+
+                .legend-item {{
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }}
+
+                .legend-color {{
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                    border: 1px solid #ddd;
+                }}
+
+                .legend-text {{
+                    color: #333333;
+                }}
+
+                /* ========== Dark 模式适配 ========== */
+                @media (prefers-color-scheme: dark) {{
+                    #{table_id} {{
+                        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+                    }}
+
+                    #{table_id} td {{
+                        background: #1e1e1e;
+                        color: #e0e0e0;
+                        border-bottom: 1px solid #404040;
+                        border-right: 1px solid #353535;
+                    }}
+
+                    #{table_id} td:first-child {{
+                        background: #2d2d2d;
+                        color: #e0e0e0;
+                    }}
+
+                    #{table_id} tbody tr:hover {{
+                        background-color: rgba(102, 126, 234, 0.25) !important;
+                    }}
+
+                    #{table_id} tbody tr:hover td {{
+                        background-color: rgba(102, 126, 234, 0.25) !important;
+                    }}
+
+                    /* Dark模式 - 主元行 */
+                    #{table_id} .pivot-row {{
+                        background: linear-gradient(90deg, #5d4037 0%, #6d4c41 50%, #5d4037 100%) !important;
+                    }}
+
+                    #{table_id} .pivot-row td {{
+                        color: #ffcc80 !important;
+                        border-top: 3px solid #ff9800 !important;
+                        border-bottom: 3px solid #ff9800 !important;
+                        background: transparent !important;
+                    }}
+
+                    #{table_id} .pivot-row td:first-child {{
+                        background: linear-gradient(90deg, #6d4c41 0%, #795548 100%) !important;
+                        color: #ffcc80 !important;
+                        border-left: 3px solid #ff9800 !important;
+                    }}
+
+                    /* Dark模式 - 离基变量 */
+                    #{table_id} .leaving-cell {{
+                        background: linear-gradient(90deg, #5d4037 0%, #6d4c41 100%) !important;
+                        color: #ffb74d !important;
+                    }}
+
+                    #{table_id} .leaving-cell .label-tag {{
+                        background: rgba(255, 152, 0, 0.3) !important;
+                        color: #ffcc80 !important;
+                        border-color: #ff9800 !important;
+                    }}
+
+                    /* Dark模式 - 主元列 */
+                    #{table_id} .pivot-col-cell {{
+                        background: linear-gradient(180deg, #004d40 0%, #00695c 100%) !important;
+                        color: #80deea !important;
+                        border-left: 3px solid #00bcd4 !important;
+                        border-right: 3px solid #00bcd4 !important;
+                    }}
+
+                    /* Dark模式 - Cj 行 */
+                    #{table_id} .cj-row {{
+                        background: linear-gradient(90deg, #1b5e20 0%, #2e7d32 50%, #1b5e20 100%) !important;
+                    }}
+
+                    #{table_id} .cj-row td {{
+                        color: #a5d6a7 !important;
+                        background: transparent !important;
+                    }}
+
+                    #{table_id} .cj-row td:first-child {{
+                        background: linear-gradient(90deg, #2e7d32 0%, #388e3c 100%) !important;
+                        color: #c8e6c9 !important;
+                    }}
+
+                    /* Dark模式 - Cj-Zj 行 */
+                    #{table_id} .cjzj-row {{
+                        background: linear-gradient(90deg, #5d4037 0%, #6d4c41 50%, #5d4037 100%) !important;
+                    }}
+
+                    #{table_id} .cjzj-row td {{
+                        color: #ffcc80 !important;
+                        background: transparent !important;
+                    }}
+
+                    #{table_id} .cjzj-row td:first-child {{
+                        background: linear-gradient(90deg, #6d4c41 0%, #795548 100%) !important;
+                        color: #ffe0b2 !important;
+                    }}
+
+                    /* Dark模式 - 正值Cj-Zj */
+                    #{table_id} .positive-cjzj {{
+                        color: #ef9a9a !important;
+                        background: linear-gradient(180deg, #4a1c1c 0%, #5d2020 100%) !important;
+                        border: 2px dashed #ef5350 !important;
+                    }}
+
+                    /* Dark模式 - 标签 */
+                    #{table_id} .tag-enter {{
+                        background: rgba(0, 188, 212, 0.3) !important;
+                        color: #80deea !important;
+                        border-color: #00bcd4 !important;
+                    }}
+
+                    #{table_id} .tag-leave {{
+                        background: rgba(255, 152, 0, 0.3) !important;
+                        color: #ffcc80 !important;
+                        border-color: #ff9800 !important;
+                    }}
+
+                    /* Dark模式 - 图例 */
+                    .simplex-legend {{
+                        background: #2d2d2d !important;
+                        color: #e0e0e0 !important;
+                    }}
+
+                    .simplex-legend span,
+                    .legend-text {{
+                        color: #e0e0e0 !important;
+                    }}
+
+                    .legend-color {{
+                        border-color: #555 !important;
+                    }}
+                }}
+
+                /* Streamlit Dark主题适配（使用data-theme属性） */
+                [data-theme="dark"] #{table_id} td,
+                .stApp[data-theme="dark"] #{table_id} td {{
+                    background: #1e1e1e;
+                    color: #e0e0e0;
+                    border-bottom: 1px solid #404040;
+                    border-right: 1px solid #353535;
+                }}
+
+                [data-theme="dark"] #{table_id} td:first-child,
+                .stApp[data-theme="dark"] #{table_id} td:first-child {{
+                    background: #2d2d2d;
+                    color: #e0e0e0;
+                }}
+
+                [data-theme="dark"] #{table_id} tbody tr:hover,
+                .stApp[data-theme="dark"] #{table_id} tbody tr:hover {{
+                    background-color: rgba(102, 126, 234, 0.25) !important;
+                }}
+
+                [data-theme="dark"] #{table_id} .pivot-row td,
+                .stApp[data-theme="dark"] #{table_id} .pivot-row td {{
+                    color: #ffcc80 !important;
+                }}
+
+                [data-theme="dark"] #{table_id} .leaving-cell,
+                .stApp[data-theme="dark"] #{table_id} .leaving-cell {{
+                    color: #ffb74d !important;
+                }}
+
+                [data-theme="dark"] .simplex-legend,
+                .stApp[data-theme="dark"] .simplex-legend {{
+                    background: #2d2d2d !important;
+                    color: #e0e0e0 !important;
+                }}
+
+                [data-theme="dark"] .simplex-legend span,
+                [data-theme="dark"] .legend-text,
+                .stApp[data-theme="dark"] .simplex-legend span,
+                .stApp[data-theme="dark"] .legend-text {{
+                    color: #e0e0e0 !important;
+                }}
+            </style>
+
+            <table id="{table_id}">
+            <thead><tr>
+            """
+
+            # 表头
+            for col_idx, h in enumerate(headers):
+                if is_before and pivot_col_idx is not None and col_idx == pivot_col_idx + 1:
+                    html += f'''<th class="entering-header">
+                        {h}
+                        <br><span class="label-tag tag-enter">▼ 入基列</span>
+                    </th>'''
+                else:
+                    html += f'<th>{h}</th>'
+            html += '</tr></thead><tbody>'
+
+            # 数据行
+            for row_idx, row in enumerate(table_data):
+                first_cell = row[0] if row else ''
+                is_cj_row = first_cell == 'Cj'
+                is_cj_zj_row = first_cell == 'Cj-Zj'
+
+                actual_row_idx = row_idx - 1 if cj_vec else row_idx
+                is_pivot_row = (is_before and
+                               pivot_row_idx is not None and
+                               actual_row_idx == pivot_row_idx and
+                               not is_cj_row and
+                               not is_cj_zj_row)
+
+                # 行类名
+                row_class = ""
+                if is_cj_row:
+                    row_class = "cj-row"
+                elif is_cj_zj_row:
+                    row_class = "cjzj-row"
+                elif is_pivot_row:
+                    row_class = "pivot-row"
+
+                html += f'<tr class="{row_class}">'
+
+                for col_idx, cell in enumerate(row):
+                    is_pivot_cell = (is_before and
+                                    is_pivot_row and
+                                    pivot_col_idx is not None and
+                                    col_idx == pivot_col_idx + 1)
+
+                    is_in_pivot_col = (is_before and
+                                      pivot_col_idx is not None and
+                                      col_idx == pivot_col_idx + 1 and
+                                      not is_cj_row and
+                                      not is_cj_zj_row and
+                                      not is_pivot_row)  # 主元单元格单独处理
+
+                    is_leaving_cell = is_pivot_row and col_idx == 0
+
+                    # Cj-Zj行中的正值检测
+                    is_positive_cjzj = False
+                    if is_cj_zj_row and col_idx > 0 and col_idx <= len(cj_values):
+                        try:
+                            val = float(cell) if cell and cell not in ['', '(见下一步)'] else 0
+                            is_positive_cjzj = val > 0.0001
+                        except:
+                            pass
+
+                    # 构建单元格
+                    if is_pivot_cell:
+                        html += f'''<td class="pivot-cell">
+                            <div style="font-size:18px;">🎯</div>
+                            <div style="font-size:14px; margin: 2px 0;">{cell}</div>
+                            <span class="label-tag tag-pivot">主元</span>
+                        </td>'''
+                    elif is_leaving_cell:
+                        html += f'''<td class="leaving-cell">
+                            <div>{cell}</div>
+                            <span class="label-tag tag-leave">离基行 ▶</span>
+                        </td>'''
+                    elif is_in_pivot_col:
+                        html += f'<td class="pivot-col-cell">{cell}</td>'
+                    elif is_positive_cjzj:
+                        html += f'<td class="positive-cjzj">{cell}</td>'
+                    else:
+                        html += f'<td>{cell}</td>'
+
+                html += '</tr>'
+
+            html += '</tbody></table>'
+
+            # 添加图例说明（仅迭代前表格显示）
+            if is_before and pivot_row_idx is not None:
+                html += '''
+                <div class="simplex-legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #9c27b0, #7b1fa2);"></div>
+                        <span class="legend-text"><b>主元</b></span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(90deg, #ffe0b2, #ffcc80); border-color: #ff9800;"></div>
+                        <span class="legend-text"><b>主元行</b>（离基）- 橙色</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(180deg, #e0f7fa, #b2ebf2); border-color: #00bcd4;"></div>
+                        <span class="legend-text"><b>主元列</b>（入基）- 青色</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(180deg, #ffebee, #ffcdd2); border: 2px dashed #e57373;"></div>
+                        <span class="legend-text"><b>正检验数</b>（可入基）</span>
+                    </div>
+                </div>
+                '''
+
+            return html
+
         with tab1:
-            # 构建完整表格
+            # 构建完整表格数据
             full_table_before = []
 
             # Cj 行
@@ -1321,8 +1857,41 @@ def display_simplex_iteration_history(iteration_payload):
                 cj_zj_row = ['Cj-Zj'] + [f"{v:.4f}" for v in cj_values] + ['']
                 full_table_before.append(cj_zj_row)
 
-            before_df = pd.DataFrame(full_table_before, columns=headers)
-            st.dataframe(before_df, use_container_width=True, hide_index=True)
+            # 使用HTML表格显示，高亮主元
+            html_table = build_html_table(full_table_before, headers, pivot_row, pivot_col, is_before=True)
+            st.markdown(html_table, unsafe_allow_html=True)
+
+            # 主元说明
+            if pivot_info and entry.get('status') == 'pivot':
+                st.markdown(f"""
+                <style>
+                    .pivot-info-box {{
+                        background: #ffebee;
+                        padding: 10px;
+                        border-radius: 5px;
+                        margin-top: 10px;
+                        font-size: 13px;
+                        color: #333333;
+                    }}
+                    @media (prefers-color-scheme: dark) {{
+                        .pivot-info-box {{
+                            background: #5d2020 !important;
+                            color: #ffcdd2 !important;
+                        }}
+                    }}
+                    [data-theme="dark"] .pivot-info-box,
+                    .stApp[data-theme="dark"] .pivot-info-box {{
+                        background: #5d2020 !important;
+                        color: #ffcdd2 !important;
+                    }}
+                </style>
+                <div class="pivot-info-box">
+                    🎯 <b>主元位置</b>: 第 {pivot_row + 1} 行, 第 {pivot_col + 1} 列
+                    | <b>主元值</b>: {pivot_info.get('value', 0):.4f}
+                    | <b>入基</b>: {entry.get('entering', '?')}
+                    | <b>离基</b>: {entry.get('leaving', '?')}
+                </div>
+                """, unsafe_allow_html=True)
 
         with tab2:
             # 构建迭代后表格
@@ -1348,7 +1917,6 @@ def display_simplex_iteration_history(iteration_payload):
                 full_table_after.append(formatted_row)
 
             # 计算迭代后的 Cj-Zj
-            # 需要根据新的基变量和tableau_after重新计算
             if cj_vec and tableau_after:
                 import numpy as np
                 cj_arr = np.array(cj_vec)
@@ -1357,7 +1925,6 @@ def display_simplex_iteration_history(iteration_payload):
                 # 获取迭代后每行的基变量索引
                 after_basis_indices = []
                 for i, var_name in enumerate(after_basis_vars):
-                    # 在 column_labels 中查找该变量的索引
                     if var_name in column_labels:
                         after_basis_indices.append(column_labels.index(var_name))
                     else:
@@ -1368,19 +1935,19 @@ def display_simplex_iteration_history(iteration_payload):
                 for row_idx, basis_idx in enumerate(after_basis_indices):
                     if basis_idx is not None and row_idx < len(tableau_arr):
                         cb = cj_arr[basis_idx]
-                        zj += cb * tableau_arr[row_idx, :-1]  # 排除RHS列
+                        zj += cb * tableau_arr[row_idx, :-1]
 
                 # Cj - Zj
                 cj_minus_zj_after = cj_arr - zj
                 cj_zj_row = ['Cj-Zj'] + [f"{v:.4f}" for v in cj_minus_zj_after] + ['']
                 full_table_after.append(cj_zj_row)
             else:
-                # 如果无法计算，显示提示
                 cj_zj_row = ['Cj-Zj'] + ['(见下一步)'] * len(column_labels) + ['']
                 full_table_after.append(cj_zj_row)
 
-            after_df = pd.DataFrame(full_table_after, columns=headers)
-            st.dataframe(after_df, use_container_width=True, hide_index=True)
+            # 迭代后的表格不高亮主元
+            html_table_after = build_html_table(full_table_after, headers, None, None, is_before=False)
+            st.markdown(html_table_after, unsafe_allow_html=True)
 
     # ========== 最小比值检验 ==========
     ratios = entry.get('ratios') or []
